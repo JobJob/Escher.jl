@@ -96,7 +96,7 @@ function main(window)
 
     vbox(
        vskip(2em),
-       title(3, "minesweeper"),
+       title(3, "minesweeper2"),
        vskip(2em),
        consume(showboard, board_signal, typ=Tile),
     ) |> packacross(center)

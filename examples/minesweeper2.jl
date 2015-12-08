@@ -12,7 +12,6 @@ end
 
 const BLANK = -1
 const BLANKFLAG = -2
-const FLAGDELTA = -1
 
 function newboard(m, n, minefraction=0.05)
     mines = rand(m,n) .< minefraction
@@ -35,7 +34,7 @@ function mines_around(board, i, j)
     sum(board.mines[a:b, c:d])
 end
 
-clear_around!(board, uncovered, i, j) = begin
+function clear_around!(board, uncovered, i, j)
     a,b,c,d = squares_around(board.mines, i, j)
     ncleared = 0
     for row = a:b, col = c:d
@@ -66,22 +65,20 @@ function next(board, move)
             return Board{true}(board.uncovered, board.mines, board.squaresleft) # Game over
         else
             uncovered = copy(board.uncovered)
+            ncleared = 0
             if uncovered[i, j] < 0
                 uncovered[i, j] = mines_around(board, i, j)
                 ncleared = 1
-                if uncovered[i, j] == 0
+                if uncovered[i, j] == 0 # autoclear around zeros recursively
                     ncleared += clear_around!(board, uncovered, i, j)
                 end
-                return Board{false}(uncovered, board.mines, board.squaresleft-ncleared)
-            else
-                return Board{false}(uncovered, board.mines, board.squaresleft)
             end
+            return Board{false}(uncovered, board.mines, board.squaresleft-ncleared)
         end
     end
 end
 
-const ClickT = Nullable{Escher.MouseButton}
-moves_signal = Input{Tuple{Int,Int,ClickT}}((0, 0, nothing))
+moves_signal = Input{Tuple{Int,Int,Nullable{Escher.MouseButton}}}((0, 0, nothing))
 initial_board_signal = Input{Board}(newboard(10, 10))
 board_signal = flatten(
     lift(initial_board_signal) do b
@@ -91,8 +88,7 @@ board_signal = flatten(
 
 ### View ###
 
-
-colors = ["#fff", colormap("reds", 7)]
+colors = ["#fff"; colormap("reds", 9)]
 
 box(content, color) =
     inset(Escher.middle,
@@ -100,15 +96,17 @@ box(content, color) =
         Escher.fontsize(2em, content)) |> paper(1) |> Escher.pad(0.2em)
 
 isflagged(x) = x == BLANKFLAG
-getcolor(x) = isflagged(x) ? colors[1] : colors[x+2]
+getcolor(x) = isflagged(x) ? colors[BLANK+2] : colors[x+2]
+
 number(x) = box(x < 0 ? isflagged(x) ? icon("flag") : "" : string(x) |> fontweight(800), getcolor(x))
 mine = box(icon("report"), "#e58")
+
 block(board::Board{true}, i, j) =
     board.mines[i, j] ? mine :
         number(board.uncovered[i, j])
 
-block(board, i, j) = begin
-    clicksig = Input{ClickT}(nothing)
+block(board::Board{false}, i, j) = begin
+    clicksig = Input{Nullable{Escher.MouseButton}}(nothing)
     block_view = clickable([leftbutton, rightbutton], number(board.uncovered[i, j]))
     lift(clicksig; init=nothing) do clickinfo
         Timer(t->push!(moves_signal, (i,j,clickinfo)), 0.02)

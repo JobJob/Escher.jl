@@ -10,6 +10,8 @@ using Lazy
     squaresleft::Int64
 end
 
+Base.size(b::Board) = size(b.mines)
+
 const BLANK = -1
 const BLANKFLAG = -2
 
@@ -18,8 +20,8 @@ function newboard(m, n, minefraction=0.05)
     Board{false}(fill(BLANK, (m,n)), mines, n*m-sum(mines))
 end
 
-function squares_around(mines, i, j)
-    m, n = size(mines)
+function squares_around(board, i, j)
+    m, n = size(board)
 
     a = max(1, i-1)
     b = min(i+1, m)
@@ -29,19 +31,15 @@ function squares_around(mines, i, j)
     return (a,b,c,d)
 end
 
-function mines_around(board, i, j)
-    a,b,c,d = squares_around(board.mines, i, j)
-    sum(board.mines[a:b, c:d])
-end
-
-function clear_around!(board, uncovered, i, j)
-    a,b,c,d = squares_around(board.mines, i, j)
+function clear_square!(board, uncovered, i, j)
     ncleared = 0
-    for row = a:b, col = c:d
-        uncovered[row,col] >= 0 && continue;
-        uncovered[row,col] = mines_around(board,row,col)
-        if uncovered[row,col] == 0
-            ncleared += clear_around!(board, uncovered, row, col)
+    if uncovered[i,j] < 0
+        a,b,c,d = squares_around(board,i,j)
+        uncovered[i,j] = sum(board.mines[a:b, c:d])
+        if uncovered[i,j] == 0
+            for row = a:b, col = c:d
+                ncleared += clear_square!(board, uncovered, row, col)
+            end
         end
         ncleared += 1
     end
@@ -65,14 +63,7 @@ function next(board, move)
             return Board{true}(board.uncovered, board.mines, board.squaresleft) # Game over
         else
             uncovered = copy(board.uncovered)
-            ncleared = 0
-            if uncovered[i, j] < 0
-                uncovered[i, j] = mines_around(board, i, j)
-                ncleared = 1
-                if uncovered[i, j] == 0 # autoclear around zeros recursively
-                    ncleared += clear_around!(board, uncovered, i, j)
-                end
-            end
+            ncleared = clear_square!(board, uncovered, i, j)
             return Board{false}(uncovered, board.mines, board.squaresleft-ncleared)
         end
     end
@@ -131,7 +122,7 @@ function showboard{lost}(board::Board{lost})
     if lost
         inset(Escher.middle, b, gameover)
     else
-       board.squaresleft > 0 ? b : inset(Escher.middle, b, gamewon)
+        board.squaresleft > 0 ? b : inset(Escher.middle, b, gamewon)
    end
 end
 

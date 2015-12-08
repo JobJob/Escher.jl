@@ -29,10 +29,12 @@ function squares_around(mines, i, j)
 
     return (a,b,c,d)
 end
+
 function mines_around(board, i, j)
     a,b,c,d = squares_around(board.mines, i, j)
     sum(board.mines[a:b, c:d])
 end
+
 clear_around!(board, uncovered, i, j) = begin
     a,b,c,d = squares_around(board.mines, i, j)
     ncleared = 0
@@ -51,29 +53,29 @@ end
 
 next(board::Board{true}, move) = board
 
+toggleflag(number) = number == BLANK ? BLANKFLAG : number == BLANKFLAG ? BLANK : number
+
 function next(board, move)
     i, j, clickinfo = move
     if get(clickinfo) == Escher.RightButton()
         uncovered = copy(board.uncovered)
-        if uncovered[i, j] == BLANK
-            uncovered[i, j] += FLAGDELTA
-        elseif uncovered[i, j] == BLANKFLAG
-            uncovered[i, j] -= FLAGDELTA
-        end
+        uncovered[i,j] = toggleflag(uncovered[i,j])
         return Board{false}(uncovered, board.mines, board.squaresleft)
-    elseif board.mines[i, j]
-        return Board{true}(board.uncovered, board.mines, board.squaresleft) # Game over
-    else
-        uncovered = copy(board.uncovered)
-        if uncovered[i, j] < 0
-            uncovered[i, j] = mines_around(board, i, j)
-            ncleared = 1
-            if uncovered[i, j] == 0
-                ncleared += clear_around!(board, uncovered, i, j)
-            end
-            return Board{false}(uncovered, board.mines, board.squaresleft-ncleared)
+    else # Escher.LeftButton() was pressed
+        if board.mines[i, j]
+            return Board{true}(board.uncovered, board.mines, board.squaresleft) # Game over
         else
-            return Board{false}(uncovered, board.mines, board.squaresleft)
+            uncovered = copy(board.uncovered)
+            if uncovered[i, j] < 0
+                uncovered[i, j] = mines_around(board, i, j)
+                ncleared = 1
+                if uncovered[i, j] == 0
+                    ncleared += clear_around!(board, uncovered, i, j)
+                end
+                return Board{false}(uncovered, board.mines, board.squaresleft-ncleared)
+            else
+                return Board{false}(uncovered, board.mines, board.squaresleft)
+            end
         end
     end
 end

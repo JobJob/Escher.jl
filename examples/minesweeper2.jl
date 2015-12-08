@@ -106,13 +106,8 @@ block(board::Board{false}, i, j) = begin
     block_view >>> clicksig
 end
 
-gameover = vbox(
-        title(2, "Game Over!") |> Escher.pad(1em),
-        addinterpreter(_ -> newboard(10, 10), button("Start again")) >>> initial_board_signal
-    ) |> Escher.pad(1em) |> fillcolor("white")
-
-gamewon = vbox(
-        title(2, "Game Won!") |> Escher.pad(1em),
+gameover(message) = vbox(
+        title(2, message) |> Escher.pad(1em),
         addinterpreter(_ -> newboard(10, 10), button("Start again")) >>> initial_board_signal
     ) |> Escher.pad(1em) |> fillcolor("white")
 
@@ -120,9 +115,9 @@ function showboard{lost}(board::Board{lost})
     m, n = size(board.mines)
     b = hbox([vbox([block(board, i, j) for j in 1:m]) for i in 1:n])
     if lost
-        inset(Escher.middle, b, gameover)
+        inset(Escher.middle, b, gameover("Game Over!"))
     else
-        board.squaresleft > 0 ? b : inset(Escher.middle, b, gamewon)
+        board.squaresleft > 0 ? b : inset(Escher.middle, b, gameover("Game Won!"))
    end
 end
 

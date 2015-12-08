@@ -10,17 +10,18 @@ using Lazy
     squaresleft::Int64
 end
 
+Base.size(b::Board) = size(b.mines)
+
 const BLANK = -1
 const BLANKFLAG = -2
-const FLAGDELTA = -1
 
 function newboard(m, n, minefraction=0.05)
     mines = rand(m,n) .< minefraction
     Board{false}(fill(BLANK, (m,n)), mines, n*m-sum(mines))
 end
 
-function squares_around(mines, i, j)
-    m, n = size(mines)
+function squares_around(board, i, j)
+    m, n = size(board)
 
     a = max(1, i-1)
     b = min(i+1, m)
@@ -29,18 +30,16 @@ function squares_around(mines, i, j)
 
     return (a,b,c,d)
 end
-function mines_around(board, i, j)
-    a,b,c,d = squares_around(board.mines, i, j)
-    sum(board.mines[a:b, c:d])
-end
-clear_around!(board, uncovered, i, j) = begin
-    a,b,c,d = squares_around(board.mines, i, j)
+
+function clear_square!(board, uncovered, i, j)
     ncleared = 0
-    for row = a:b, col = c:d
-        uncovered[row,col] >= 0 && continue;
-        uncovered[row,col] = mines_around(board,row,col)
-        if uncovered[row,col] == 0
-            ncleared += clear_around!(board, uncovered, row, col)
+    if uncovered[i,j] < 0
+        a,b,c,d = squares_around(board,i,j)
+        uncovered[i,j] = sum(board.mines[a:b, c:d])
+        if uncovered[i,j] == 0
+            for row = a:b, col = c:d
+                ncleared += clear_square!(board, uncovered, row, col)
+            end
         end
         ncleared += 1
     end
@@ -51,35 +50,26 @@ end
 
 next(board::Board{true}, move) = board
 
+toggleflag(number) = number == BLANK ? BLANKFLAG : number == BLANKFLAG ? BLANK : number
+
 function next(board, move)
     i, j, clickinfo = move
     if get(clickinfo) == Escher.RightButton()
         uncovered = copy(board.uncovered)
-        if uncovered[i, j] == BLANK
-            uncovered[i, j] += FLAGDELTA
-        elseif uncovered[i, j] == BLANKFLAG
-            uncovered[i, j] -= FLAGDELTA
-        end
+        uncovered[i,j] = toggleflag(uncovered[i,j])
         return Board{false}(uncovered, board.mines, board.squaresleft)
-    elseif board.mines[i, j]
-        return Board{true}(board.uncovered, board.mines, board.squaresleft) # Game over
-    else
-        uncovered = copy(board.uncovered)
-        if uncovered[i, j] < 0
-            uncovered[i, j] = mines_around(board, i, j)
-            ncleared = 1
-            if uncovered[i, j] == 0
-                ncleared += clear_around!(board, uncovered, i, j)
-            end
-            return Board{false}(uncovered, board.mines, board.squaresleft-ncleared)
+    else # Escher.LeftButton() was pressed
+        if board.mines[i, j]
+            return Board{true}(board.uncovered, board.mines, board.squaresleft) # Game over
         else
-            return Board{false}(uncovered, board.mines, board.squaresleft)
+            uncovered = copy(board.uncovered)
+            ncleared = clear_square!(board, uncovered, i, j)
+            return Board{false}(uncovered, board.mines, board.squaresleft-ncleared)
         end
     end
 end
 
-const ClickT = Nullable{Escher.MouseButton}
-moves_signal = Input{Tuple{Int,Int,ClickT}}((0, 0, nothing))
+moves_signal = Input{Tuple{Int,Int,Nullable{Escher.MouseButton}}}((0, 0, nothing))
 initial_board_signal = Input{Board}(newboard(10, 10))
 board_signal = flatten(
     lift(initial_board_signal) do b
@@ -89,8 +79,7 @@ board_signal = flatten(
 
 ### View ###
 
-
-colors = ["#fff", colormap("reds", 7)]
+colors = ["#fff"; colormap("reds", 9)]
 
 box(content, color) =
     inset(Escher.middle,
@@ -98,15 +87,17 @@ box(content, color) =
         Escher.fontsize(2em, content)) |> paper(1) |> Escher.pad(0.2em)
 
 isflagged(x) = x == BLANKFLAG
-getcolor(x) = isflagged(x) ? colors[1] : colors[x+2]
+getcolor(x) = isflagged(x) ? colors[BLANK+2] : colors[x+2]
+
 number(x) = box(x < 0 ? isflagged(x) ? icon("flag") : "" : string(x) |> fontweight(800), getcolor(x))
 mine = box(icon("report"), "#e58")
+
 block(board::Board{true}, i, j) =
     board.mines[i, j] ? mine :
         number(board.uncovered[i, j])
 
-block(board, i, j) = begin
-    clicksig = Input{ClickT}(nothing)
+block(board::Board{false}, i, j) = begin
+    clicksig = Input{Nullable{Escher.MouseButton}}(nothing)
     block_view = clickable([leftbutton, rightbutton], number(board.uncovered[i, j]))
     lift(clicksig; init=nothing) do clickinfo
         Timer(t->push!(moves_signal, (i,j,clickinfo)), 0.02)
@@ -115,13 +106,8 @@ block(board, i, j) = begin
     block_view >>> clicksig
 end
 
-gameover = vbox(
-        title(2, "Game Over!") |> Escher.pad(1em),
-        addinterpreter(_ -> newboard(10, 10), button("Start again")) >>> initial_board_signal
-    ) |> Escher.pad(1em) |> fillcolor("white")
-
-gamewon = vbox(
-        title(2, "Game Won!") |> Escher.pad(1em),
+gameover(message) = vbox(
+        title(2, message) |> Escher.pad(1em),
         addinterpreter(_ -> newboard(10, 10), button("Start again")) >>> initial_board_signal
     ) |> Escher.pad(1em) |> fillcolor("white")
 
@@ -129,9 +115,9 @@ function showboard{lost}(board::Board{lost})
     m, n = size(board.mines)
     b = hbox([vbox([block(board, i, j) for j in 1:m]) for i in 1:n])
     if lost
-        inset(Escher.middle, b, gameover)
+        inset(Escher.middle, b, gameover("Game Over!"))
     else
-       board.squaresleft > 0 ? b : inset(Escher.middle, b, gamewon)
+        board.squaresleft > 0 ? b : inset(Escher.middle, b, gameover("Game Won!"))
    end
 end
 

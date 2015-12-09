@@ -69,22 +69,8 @@ function next(board, move)
     end
 end
 
-typealias MoveInfo Tuple{Int,Int,Escher.MouseButton}
-function initclicksigs(board)
-    m,n = size(board)
-    clicksigs = [Input{Escher.MouseButton}(Escher.LeftButton()) for j in 1:m, i in 1:n]
-    movesigs = Array(Signal{MoveInfo}, m, n)
-    for j in 1:m, i in 1:n
-        movesigs[i,j] = lift(clicksigs[i,j]; typ=MoveInfo, init=(0,0,Escher.LeftButton())) do clicktype
-            res = (i,j,clicktype)
-        end
-    end
-    clicksigs, merge(movesigs...)
-end
-
-initialboard = newboard(10, 10)
-clicksigs, moves_signal = initclicksigs(initialboard)
-initial_board_signal = Input{Board}(initialboard)
+moves_signal = Input{Tuple{Int,Int,Escher.MouseButton}}((0,0,Escher.LeftButton()))
+initial_board_signal = Input{Board}(newboard(10, 10))
 board_signal = lift(initial_board_signal) do b
     foldl(next, b, moves_signal; typ=Board)
 end |> flatten
@@ -105,11 +91,12 @@ number(x) = box(x < 0 ? isflagged(x) ? icon("flag") : "" : string(x) |> fontweig
 mine = box(icon("report"), "#e58")
 
 block(board::Board{true}, i, j) =
-    board.mines[i, j] ? mine :
-        number(board.uncovered[i, j])
+    board.mines[i, j] ? mine : number(board.uncovered[i, j])
 
 block(board::Board{false}, i, j) =
-    clickable([leftbutton, rightbutton], number(board.uncovered[i, j])) >>> clicksigs[i,j]
+    addinterpreter(clicktype -> (i,j,clicktype),
+                   clickable([leftbutton, rightbutton],
+                             number(board.uncovered[i, j]))) >>> moves_signal
 
 gameover(message) = vbox(
         title(2, message) |> Escher.pad(1em),

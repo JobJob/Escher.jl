@@ -54,7 +54,7 @@ toggleflag(number) = number == BLANK ? BLANKFLAG : number == BLANKFLAG ? BLANK :
 
 function next(board, move)
     i, j, clickinfo = move
-    if get(clickinfo) == Escher.RightButton()
+    if clickinfo == Escher.RightButton()
         uncovered = copy(board.uncovered)
         uncovered[i,j] = toggleflag(uncovered[i,j])
         return Board{false}(uncovered, board.mines, board.squaresleft)
@@ -69,13 +69,25 @@ function next(board, move)
     end
 end
 
-moves_signal = Input{Tuple{Int,Int,Nullable{Escher.MouseButton}}}((0, 0, nothing))
-initial_board_signal = Input{Board}(newboard(10, 10))
-board_signal = flatten(
-    lift(initial_board_signal) do b
-        foldl(next, b, moves_signal; typ=Board)
+typealias MoveInfo Tuple{Int,Int,Escher.MouseButton}
+function initclicksigs(board)
+    m,n = size(board)
+    clicksigs = [Input{Escher.MouseButton}(Escher.LeftButton()) for j in 1:m, i in 1:n]
+    movesigs = Array(Signal{MoveInfo}, m, n)
+    for j in 1:m, i in 1:n
+        movesigs[i,j] = lift(clicksigs[i,j]; typ=MoveInfo, init=(0,0,Escher.LeftButton())) do clicktype
+            res = (i,j,clicktype)
+        end
     end
-)
+    clicksigs, merge(movesigs...)
+end
+
+initialboard = newboard(10, 10)
+clicksigs, moves_signal = initclicksigs(initialboard)
+initial_board_signal = Input{Board}(initialboard)
+board_signal = lift(initial_board_signal) do b
+    foldl(next, b, moves_signal; typ=Board)
+end |> flatten
 
 ### View ###
 
@@ -96,15 +108,8 @@ block(board::Board{true}, i, j) =
     board.mines[i, j] ? mine :
         number(board.uncovered[i, j])
 
-block(board::Board{false}, i, j) = begin
-    clicksig = Input{Nullable{Escher.MouseButton}}(nothing)
-    block_view = clickable([leftbutton, rightbutton], number(board.uncovered[i, j]))
-    lift(clicksig; init=nothing) do clickinfo
-        Timer(t->push!(moves_signal, (i,j,clickinfo)), 0.02)
-        nothing
-    end
-    block_view >>> clicksig
-end
+block(board::Board{false}, i, j) =
+    clickable([leftbutton, rightbutton], number(board.uncovered[i, j])) >>> clicksigs[i,j]
 
 gameover(message) = vbox(
         title(2, message) |> Escher.pad(1em),
@@ -114,11 +119,11 @@ gameover(message) = vbox(
 function showboard{lost}(board::Board{lost})
     m, n = size(board.mines)
     b = hbox([vbox([block(board, i, j) for j in 1:m]) for i in 1:n])
-    if lost
-        inset(Escher.middle, b, gameover("Game Over!"))
+    if lost || board.squaresleft <= 0 #lost or won
+        inset(Escher.middle, b, gameover(lost ? "Game Over!": "You Won!"))
     else
-        board.squaresleft > 0 ? b : inset(Escher.middle, b, gameover("Game Won!"))
-   end
+        b
+    end
 end
 
 function main(window)

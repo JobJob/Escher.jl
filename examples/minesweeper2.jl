@@ -8,27 +8,25 @@ using Lazy
     uncovered::AbstractMatrix
     mines::AbstractMatrix
     squaresleft::Int64
+    id::Int64
 end
 
 Base.size(b::Board) = size(b.mines)
 
 const BLANK = -1
 const BLANKFLAG = -2
-
+boardcount = 0
 function newboard(m, n, minefraction=0.05)
     mines = rand(m,n) .< minefraction
-    Board{false}(fill(BLANK, (m,n)), mines, n*m-sum(mines))
+    global boardcount += 1
+    Board{false}(fill(BLANK, (m,n)), mines, n*m-sum(mines), boardcount)
 end
 
 function squares_around(board, i, j)
     m, n = size(board)
-
-    a = max(1, i-1)
-    b = min(i+1, m)
-    c = max(1, j-1)
-    d = min(j+1, n)
-
-    return (a,b,c,d)
+    boundsx = clamp([i-1,i+1],1,m)
+    boundsy = clamp([j-1,j+1],1,n)
+    return (boundsx..., boundsy...)
 end
 
 function clear_square!(board, uncovered, i, j)
@@ -53,18 +51,19 @@ next(board::Board{true}, move) = board
 toggleflag(number) = number == BLANK ? BLANKFLAG : number == BLANKFLAG ? BLANK : number
 
 function next(board, move)
+    board.squaresleft <= 0 && return board
     i, j, clickinfo = move
     if clickinfo == Escher.RightButton()
         uncovered = copy(board.uncovered)
         uncovered[i,j] = toggleflag(uncovered[i,j])
-        return Board{false}(uncovered, board.mines, board.squaresleft)
+        return Board{false}(uncovered, board.mines, board.squaresleft, board.id)
     else # Escher.LeftButton() was pressed
         if board.mines[i, j]
-            return Board{true}(board.uncovered, board.mines, board.squaresleft) # Game over
+            return Board{true}(board.uncovered, board.mines, board.squaresleft, board.id) # Game over
         else
             uncovered = copy(board.uncovered)
             ncleared = clear_square!(board, uncovered, i, j)
-            return Board{false}(uncovered, board.mines, board.squaresleft-ncleared)
+            return Board{false}(uncovered, board.mines, board.squaresleft-ncleared, board.id)
         end
     end
 end
@@ -90,13 +89,18 @@ getcolor(x) = isflagged(x) ? colors[BLANK+2] : colors[x+2]
 number(x) = box(x < 0 ? isflagged(x) ? icon("flag") : "" : string(x) |> fontweight(800), getcolor(x))
 mine = box(icon("report"), "#e58")
 
-block(board::Board{true}, i, j) =
-    board.mines[i, j] ? mine : number(board.uncovered[i, j])
-
-block(board::Board{false}, i, j) =
+function block(board::Board{true}, i, j)
+    blockview = board.mines[i, j] ? mine : number(board.uncovered[i, j])
+    #hack to avoid bug when removing and re-adding click listeners
     addinterpreter(clicktype -> (i,j,clicktype),
-                   clickable([leftbutton, rightbutton],
-                             number(board.uncovered[i, j]))) >>> moves_signal
+                   clickable([leftbutton, rightbutton], blockview)) >>> moves_signal
+end
+
+function block(board::Board{false}, i, j)
+    blockview = number(board.uncovered[i, j])
+    addinterpreter(clicktype -> (i,j,clicktype),
+                   clickable([leftbutton, rightbutton], blockview)) >>> moves_signal
+end
 
 gameover(message) = vbox(
         title(2, message) |> Escher.pad(1em),
@@ -121,7 +125,7 @@ function main(window)
        vskip(2em),
        title(3, "minesweeper2"),
        vskip(2em),
-       consume(showboard, board_signal, typ=Tile),
+       consume(showboard, board_signal; typ=Tile),
        vskip(2em)
     ) |> packacross(center)
 end

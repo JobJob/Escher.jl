@@ -1,10 +1,9 @@
-using Compat # for Nullable
 using Colors
 using Lazy
 
 #### Model ####
 
-@defonce immutable Board{lost}
+@defonce immutable Board{gameover}
     uncovered::AbstractMatrix
     mines::AbstractMatrix
     squaresleft::Int64
@@ -49,6 +48,8 @@ end
 next(board::Board{true}, move) = board
 
 toggleflag(number) = number == BLANK ? BLANKFLAG : number == BLANKFLAG ? BLANK : number
+won(board::Board; justcleared=0) = board.squaresleft - justcleared <= 0
+lost{gameover}(board::Board{gameover}) = gameover && !won(board)
 
 function next(board, move)
     board.squaresleft <= 0 && return board
@@ -63,7 +64,9 @@ function next(board, move)
         else
             uncovered = copy(board.uncovered)
             ncleared = clear_square!(board, uncovered, i, j)
-            return Board{false}(uncovered, board.mines, board.squaresleft-ncleared, board.id)
+            gameover = won(board; justcleared=ncleared)
+            gameover && (uncovered[board.mines] = BLANKFLAG)
+            return Board{gameover}(uncovered, board.mines, board.squaresleft-ncleared, board.id)
         end
     end
 end
@@ -90,7 +93,7 @@ number(x) = box(x < 0 ? isflagged(x) ? icon("flag") : "" : string(x) |> fontweig
 mine = box(icon("report"), "#e58")
 
 function block(board::Board{true}, i, j)
-    blockview = board.mines[i, j] ? mine : number(board.uncovered[i, j])
+    blockview = board.mines[i, j] && lost(board) ? mine : number(board.uncovered[i, j])
     #hack to avoid bug when removing and re-adding click listeners
     addinterpreter(clicktype -> (i,j,clicktype),
                    clickable([leftbutton, rightbutton], blockview)) >>> moves_signal
@@ -102,19 +105,16 @@ function block(board::Board{false}, i, j)
                    clickable([leftbutton, rightbutton], blockview)) >>> moves_signal
 end
 
-gameover(message) = vbox(
+the_end(message) = vbox(
         title(2, message) |> Escher.pad(1em),
         addinterpreter(_ -> newboard(10, 10), button("Start again")) >>> initial_board_signal
     ) |> Escher.pad(1em) |> fillcolor("white")
 
-function showboard{lost}(board::Board{lost})
+function showboard{gameover}(board::Board{gameover})
     m, n = size(board.mines)
     b = hbox([vbox([block(board, i, j) for j in 1:m]) for i in 1:n])
-    if lost || board.squaresleft <= 0 #lost or won
-        inset(Escher.middle, b, gameover(lost ? "Game Over!": "You Won!"))
-    else
-        b
-    end
+    endoverlay = the_end(won(board) ? "You Won!" : "Game Over!")
+    gameover? inset(Escher.middle, b, endoverlay) : b
 end
 
 function main(window)
